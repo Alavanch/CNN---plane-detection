@@ -16,6 +16,8 @@ import sys
 
 import numpy as np
 
+import figures
+
 SEED = 42
 IMG_SIZE = 20
 CLASS_NAMES = ["no plane", "plane"]
@@ -117,30 +119,12 @@ def build_model():
     return model
 
 
-def sample_grid(images, titles, path, n_cols=5):
-    """Save (and keep open) a grid of image chips with one title each."""
-    import matplotlib.pyplot as plt
-
-    n = len(images)
-    n_rows = (n + n_cols - 1) // n_cols
-    fig = plt.figure(figsize=(2 * n_cols, 1.6 * n_rows))
-    for i in range(n):
-        ax = fig.add_subplot(n_rows, n_cols, i + 1)
-        ax.imshow(images[i])
-        ax.axis("off")
-        ax.set_title(titles[i], fontsize=9)
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
-    print("Saved", path)
-
-
 def main():
     args = parse_args()
     set_seeds(SEED)
 
     import matplotlib.pyplot as plt
-    from sklearn.metrics import (ConfusionMatrixDisplay, classification_report,
-                                 confusion_matrix)
+    from sklearn.metrics import classification_report, confusion_matrix
     from sklearn.model_selection import train_test_split
     from sklearn.utils.class_weight import compute_class_weight
     from tensorflow.keras.callbacks import EarlyStopping
@@ -208,55 +192,49 @@ def main():
         }, f, indent=2)
     print("Saved metrics to", metrics_path)
 
+    history_path = os.path.join(args.out_dir, "history.json")
+    with open(history_path, "w") as f:
+        json.dump({k: [float(v) for v in vals] for k, vals in history.history.items()},
+                  f, indent=2)
+    print("Saved per-epoch history to", history_path)
+
     # --- Figures (all saved to out_dir, shown once at the end) ---
 
     # 20 random chips from the dataset.
     idxs = rng.choice(len(images), min(20, len(images)), replace=False)
-    sample_grid([images[i] for i in idxs],
-                [CLASS_NAMES[labels[i]] for i in idxs],
-                os.path.join(args.out_dir, "samples.png"))
+    figures.save_chip_grid(
+        [images[i] for i in idxs],
+        [CLASS_NAMES[labels[i]] for i in idxs],
+        [figures.GREEN if labels[i] else figures.DARK for i in idxs],
+        os.path.join(args.out_dir, "samples.png"))
 
-    # Accuracy and loss curves (train vs validation).
-    fig, (ax_acc, ax_loss) = plt.subplots(1, 2, figsize=(10, 4))
-    ax_acc.plot(history.history["accuracy"], label="train")
-    ax_acc.plot(history.history["val_accuracy"], label="validation")
-    ax_acc.set_title("Accuracy")
-    ax_acc.set_xlabel("Epoch")
-    ax_acc.legend()
-    ax_loss.plot(history.history["loss"], label="train")
-    ax_loss.plot(history.history["val_loss"], label="validation")
-    ax_loss.set_title("Loss")
-    ax_loss.set_xlabel("Epoch")
-    ax_loss.legend()
-    fig.tight_layout()
-    curves_path = os.path.join(args.out_dir, "training_curves.png")
-    fig.savefig(curves_path, dpi=150)
-    print("Saved", curves_path)
+    figures.save_training_curves(history.history,
+                                 os.path.join(args.out_dir, "training_curves.png"))
 
     # Random correct and incorrect test predictions.
     good = np.where(pred_classes == y_test)[0]
     bad = np.where(pred_classes != y_test)[0]
     if len(good):
         picks = rng.choice(good, min(20, len(good)), replace=False)
-        sample_grid([X_test[i] for i in picks],
-                    [CLASS_NAMES[y_test[i]] for i in picks],
-                    os.path.join(args.out_dir, "correct_predictions.png"))
+        figures.save_chip_grid(
+            [X_test[i] for i in picks],
+            [CLASS_NAMES[y_test[i]] for i in picks],
+            [figures.GREEN if y_test[i] else figures.DARK for i in picks],
+            os.path.join(args.out_dir, "correct_predictions.png"))
     if len(bad):
         picks = rng.choice(bad, min(20, len(bad)), replace=False)
-        sample_grid([X_test[i] for i in picks],
-                    ["T:%s / P:%s" % (CLASS_NAMES[y_test[i]], CLASS_NAMES[pred_classes[i]])
-                     for i in picks],
-                    os.path.join(args.out_dir, "misclassified.png"))
+        figures.save_chip_grid(
+            [X_test[i] for i in picks],
+            ["T:%s / P:%s" % (CLASS_NAMES[y_test[i]], CLASS_NAMES[pred_classes[i]])
+             for i in picks],
+            [figures.DARK] * len(picks),
+            os.path.join(args.out_dir, "misclassified.png"))
     else:
         print("No misclassified test images.")
 
-    # Confusion matrix.
     cm = confusion_matrix(y_test, pred_classes)
-    disp = ConfusionMatrixDisplay(cm, display_labels=CLASS_NAMES)
-    disp.plot(cmap="Blues")
-    cm_path = os.path.join(args.out_dir, "confusion_matrix.png")
-    disp.figure_.savefig(cm_path, dpi=150)
-    print("Saved", cm_path)
+    figures.save_confusion_matrix(cm, CLASS_NAMES,
+                                  os.path.join(args.out_dir, "confusion_matrix.png"))
 
     if not args.no_show:
         plt.show()

@@ -71,13 +71,20 @@ Training took about half an hour on a laptop CPU. Early stopping ended the run
 at epoch 55 of 60 and kept the weights from epoch 50, where
 validation AUC peaked at 0.995.
 
+![Accuracy, loss, and AUC per epoch, training vs validation](docs/img/training_curves.png)
+
+<img src="docs/img/confusion_matrix.png" width="420" alt="Confusion matrix on the 6,400 test chips">
+
+
 Everything a run produces lands in `outputs/`: the trained model
-(`plane_cnn.keras`), a `metrics.json` with the test metrics and per-class
-report, the training curves, a confusion matrix, and grids of sample, correct,
-and misclassified chips. The misclassified grid is worth a look. In my run
-most errors were false alarms on bright plane-shaped blobs and white crosses
-on tarmac, the confusers doing their job, and the few missed planes were
-faint, low-contrast ones.
+(`plane_cnn.keras`), the test metrics and per-class report in `metrics.json`,
+the per-epoch numbers in `history.json`, the training curves, a confusion
+matrix, and grids of sample, correct, and misclassified chips. The
+misclassified grid is worth a look. In my run most errors were false alarms on
+bright plane-shaped blobs and white crosses on tarmac, the confusers doing
+their job, and the few missed planes were faint, low-contrast ones.
+
+![Misclassified test chips, true and predicted label above each](docs/img/misclassified.png)
 
 ## Predicting
 
