@@ -1,0 +1,18 @@
+# Dataset (32,000 PNGs, download from Kaggle — not redistributable here)
+planesnet/
+planesnet.json
+
+# Training outputs (model, figures, metrics)
+outputs/
+*.keras
+*.h5
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
