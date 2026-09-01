@@ -32,6 +32,9 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=32, help="Training batch size (default: 32)")
     parser.add_argument("--out-dir", default="outputs",
                         help="Folder for the saved model and figures (default: outputs)")
+    parser.add_argument("--seed", type=int, default=SEED,
+                        help="Training seed: weight init, shuffling, augmentation "
+                             "(default: 42). The train/val/test split stays fixed.")
     parser.add_argument("--no-show", action="store_true",
                         help="Only save the figures, do not open matplotlib windows")
     return parser.parse_args()
@@ -89,7 +92,7 @@ def load_dataset(data_dir):
     return images, labels
 
 
-def build_model():
+def build_model(seed):
     """Mini-VGG, ~270k parameters: two double-conv blocks and a Flatten head."""
     from tensorflow.keras.layers import (Conv2D, Dense, Dropout, Flatten, Input,
                                          MaxPooling2D, RandomFlip)
@@ -99,8 +102,9 @@ def build_model():
     model = Sequential([
         Input(shape=(IMG_SIZE, IMG_SIZE, 3)),
         # Satellite chips have no preferred orientation: free augmentation
-        # (active during training only).
-        RandomFlip("horizontal_and_vertical", seed=SEED),
+        # (active during training only). The 90-degree rotations live in the
+        # input pipeline; together they cover all 8 chip symmetries.
+        RandomFlip("horizontal_and_vertical", seed=seed),
         Conv2D(32, (3, 3), padding="same", activation="relu"),
         Conv2D(32, (3, 3), padding="same", activation="relu"),
         MaxPooling2D((2, 2)),
@@ -123,9 +127,10 @@ def build_model():
 
 def main():
     args = parse_args()
-    set_seeds(SEED)
+    set_seeds(args.seed)
 
     import matplotlib.pyplot as plt
+    import tensorflow as tf
     from sklearn.metrics import classification_report, confusion_matrix
     from sklearn.model_selection import train_test_split
     from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -145,14 +150,26 @@ def main():
     )
     print("Split: %d train / %d val / %d test" % (len(y_train), len(y_val), len(y_test)))
 
-    model = build_model()
+    model = build_model(args.seed)
     model.summary()
 
+    # Random 90-degree rotation per chip per epoch; the in-model RandomFlip
+    # supplies the mirrored half of the 8 symmetries.
+    def rotate90(x, y):
+        return tf.image.rot90(x, tf.random.uniform([], 0, 4, dtype=tf.int32)), y
+
+    train_ds = (
+        tf.data.Dataset.from_tensor_slices((X_train, y_train))
+        .shuffle(len(y_train), seed=args.seed, reshuffle_each_iteration=True)
+        .map(rotate90, num_parallel_calls=tf.data.AUTOTUNE)
+        .batch(args.batch_size)
+        .prefetch(tf.data.AUTOTUNE)
+    )
+
     history = model.fit(
-        X_train, y_train,
+        train_ds,
         validation_data=(X_val, y_val),
         epochs=args.epochs,
-        batch_size=args.batch_size,
         # val_loss is noisy under augmentation and stops far too early;
         # val_auc climbs smoothly and is threshold-independent.
         callbacks=[
@@ -199,6 +216,7 @@ def main():
     metrics_path = os.path.join(args.out_dir, "metrics.json")
     with open(metrics_path, "w") as f:
         json.dump({
+            "training_seed": args.seed,
             "majority_baseline_accuracy": float(baseline),
             "tuned_threshold": tuned,
             "test_at_0.5": {k: float(v) for k, v in test_metrics.items()},

@@ -35,6 +35,9 @@ def main():
     parser.add_argument("--threshold", type=float, default=None,
                         help="Decision threshold; defaults to the tuned value stored in "
                              "metrics.json next to the model, or 0.5")
+    parser.add_argument("--tta", action="store_true",
+                        help="Average the prediction over the 8 rotations/flips of "
+                             "each chip (slower, slightly more accurate)")
     args = parser.parse_args()
 
     if not os.path.isfile(args.model):
@@ -63,7 +66,15 @@ def main():
         img_to_array(load_img(p, target_size=(IMG_SIZE, IMG_SIZE))) / 255.0
         for p in paths
     ]).astype(np.float32)
-    probs = model.predict(batch, verbose=0).ravel()
+    if args.tta:
+        probs = np.zeros(len(batch), dtype=np.float64)
+        for k in range(4):
+            rot = np.rot90(batch, k, axes=(1, 2))
+            probs += model.predict(rot, verbose=0).ravel()
+            probs += model.predict(rot[:, :, ::-1, :], verbose=0).ravel()
+        probs /= 8.0
+    else:
+        probs = model.predict(batch, verbose=0).ravel()
 
     for path, prob in zip(paths, probs):
         label = "plane" if prob >= threshold else "no plane"

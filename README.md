@@ -32,9 +32,9 @@ python train.py
 ```
 
 The script loads the 32,000 chips and splits them 72/8/20 into train,
-validation, and test sets, stratified and seeded. Random flips augment the
-chips. A plane viewed from overhead has no preferred orientation, and the
-flips cost nothing. The learning rate halves after 3 epochs without a new
+validation, and test sets, stratified and seeded. Random flips and 90-degree
+rotations augment the chips, all 8 symmetries. A plane viewed from overhead
+has no preferred orientation, and the extra views cost nothing. The learning rate halves after 3 epochs without a new
 best validation AUC; training stops after 8 and the weights roll back to the
 best epoch. I first stopped on validation loss instead, and it jumped around
 so much under the augmentation that one run ended at epoch 5, badly underfit.
@@ -63,17 +63,28 @@ and beats both.
 One number means little on an imbalanced dataset. Always answering "no plane"
 already scores 75%.
 
-On the 6,400 held-out test chips the network reaches 98.2% accuracy, with a
-precision of 0.97 and a recall of 0.96 on the plane class (AUC 0.998). The
-stored threshold, 0.72 on this run, gives the same test accuracy as plain
-0.5; when validation cannot separate two thresholds, the script keeps the
-lower one for its recall. The threshold stays useful as a trade knob. Lower
-it with `predict.py --threshold` when a missed plane costs more than a false
-alarm.
+On the 6,400 held-out test chips the network reaches 98.4% accuracy at the
+plain 0.5 threshold, with a precision of 0.96 and a recall of 0.98 on the
+plane class (AUC 0.998). The stored validation-tuned threshold, 0.765 on this
+run, sits a tenth of a point lower in accuracy and swaps some recall for
+precision. The threshold is the trade knob. Lower it with
+`predict.py --threshold` when a missed plane costs more than a false alarm.
+
+Treat 98.4 as a range, not a constant. Four runs of this script differing
+only by `--seed` landed at 98.0%, 98.4%, 98.4%, and 98.6%, and a 6,400-chip
+test set carries a binomial 95% interval of ±0.3 points on top of that. A
+difference under half a point between two runs is noise.
+
+`predict.py --tta` averages each chip's 8 symmetries and bought a third of a
+point in my runs (98.7% for this model). Stacking further, the four seed
+models averaged together plus TTA, topped out at 98.8%. Many of the errors
+that remain are half-visible planes sitting on the dataset's own class
+boundary: a chip only counts as "plane" when most of the aircraft is in
+frame.
 
 Training runs in a few minutes on a laptop CPU. The learning rate dropped
-twice on the way; early stopping ended the run at epoch 21 and kept the
-weights from epoch 13, where validation AUC peaked at 0.998.
+three times on the way; early stopping ended the run at epoch 28 and kept the
+weights from epoch 20, where validation AUC peaked at 0.996.
 
 ![Accuracy, loss, and AUC per epoch, training vs validation](docs/img/training_curves.png)
 
@@ -84,9 +95,9 @@ Everything a run produces lands in `outputs/`: the trained model
 (`plane_cnn.keras`), the test metrics and per-class report in `metrics.json`,
 the per-epoch numbers in `history.json`, the training curves, a confusion
 matrix, and grids of sample, correct, and misclassified chips. The
-misclassified grid is worth a look. The 114 test errors split almost evenly:
-61 missed planes, half-cut or blended into the tarmac, against 53 false
-alarms on plane-shaped white blobs.
+misclassified grid is worth a look. The 107 test errors at the stored
+threshold split into 66 missed planes, half-cut or blended into the tarmac,
+and 41 false alarms on plane-shaped white blobs.
 
 ![Misclassified test chips, true and predicted label above each](docs/img/misclassified.png)
 
