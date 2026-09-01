@@ -1,9 +1,17 @@
-# CNN — plane detection
+# CNN plane detection
 
-A small convolutional neural network that classifies 20×20 RGB satellite image
-chips as **plane** / **no plane**, trained on the
-[PlanesNet dataset](https://www.kaggle.com/datasets/rhammell/planesnet)
-(32,000 chips: 8,000 planes, 24,000 no-planes, extracted from Planet imagery).
+A small convolutional network that answers one question about a 20x20 satellite
+image chip: plane, or no plane.
+
+The training data is [PlanesNet](https://www.kaggle.com/datasets/rhammell/planesnet),
+32,000 RGB chips cut from PlanetScope scenes over California at 3 m per pixel.
+Only 8,000 chips contain a plane. The other 24,000 were picked to hurt: a third
+are ordinary landcover (water, vegetation, bare earth, buildings), a third show
+part of a plane without the body, and a third are "confusers", bright or
+elongated objects the dataset author collected because detection models had
+mislabeled them before. Each filename starts with its label, so
+`1__20140723_181317_0905__-122.14_37.69.png` is a plane and a `0__` prefix is
+not.
 
 ## Setup
 
@@ -11,49 +19,76 @@ chips as **plane** / **no plane**, trained on the
 pip install -r requirements.txt
 ```
 
-Download the dataset from
-[Kaggle](https://www.kaggle.com/datasets/rhammell/planesnet) and extract it so
-that the `.png` files end up in a `planesnet/` folder next to `CNN.py`
-(the script also accepts the archive's nested `planesnet/planesnet/` layout).
-Filenames encode the label: `1__...` = plane, `0__...` = no plane.
+I tested with Python 3.9 and TensorFlow 2.15 on Windows 11. The dataset is on
+[Kaggle](https://www.kaggle.com/datasets/rhammell/planesnet), or as a 25 MB
+`planesnet.7z` in the author's [repo](https://github.com/rhammell/planesnet).
+Extract it next to `train.py`. A flat `planesnet/` folder works, and so does
+the nested `planesnet/planesnet/` layout that some unzip tools produce.
 
-## Usage
-
-```
-python CNN.py
-```
-
-Options: `--data-dir` (default `planesnet`), `--epochs` (default 30, with early
-stopping), `--batch-size` (default 32), `--out-dir` (default `outputs`),
-`--no-show` (save the figures without opening windows).
-
-## Model
-
-A deliberately small CNN (~100k parameters):
+## Training
 
 ```
-Conv2D(32, 3x3) → Conv2D(64, 3x3) → MaxPooling2D
-→ Conv2D(128, 3x3) → GlobalAveragePooling2D
-→ Dense(64) → Dropout(0.3) → Dense(1, sigmoid)
+python train.py
 ```
 
-Training details:
+The script loads the 32,000 chips and splits them 72/8/20 into train,
+validation, and test sets, stratified and seeded. Balanced class weights keep
+the minority plane class from being drowned out during training. Random flips
+augment the chips. A plane viewed from overhead has no preferred orientation,
+and the flips cost nothing. Training stops once validation AUC has gone 5
+epochs without a new best, and the weights roll back to that best epoch. I
+first stopped on validation loss instead; under class weights it jumped around
+so much that the run ended at epoch 5 with a badly underfit model.
 
-- stratified 72/8/20 train/validation/test split (the dataset is imbalanced
-  1:3, so accuracy must be read against the 75% majority-class baseline that
-  the script prints);
-- balanced class weights so the rare *plane* class is not under-served;
-- early stopping on validation loss (best weights restored);
-- seeded runs (`tf.keras.utils.set_random_seed`) for comparability.
+Flags: `--data-dir`, `--epochs` (ceiling, default 60), `--batch-size`,
+`--out-dir`, and `--no-show` to save the figures without opening windows.
 
-## Outputs
+I kept the network small on purpose, 101k parameters:
 
-Everything is written to `outputs/`:
+```
+RandomFlip -> Conv2D(32) -> Conv2D(64) -> MaxPooling2D
+-> Conv2D(128) -> GlobalAveragePooling2D -> Dense(64) -> Dropout -> Dense(1)
+```
 
-- `plane_cnn.keras` — the trained model;
-- `metrics.json` — test accuracy/precision/recall + per-class report;
-- `samples.png`, `training_curves.png`, `correct_predictions.png`,
-  `misclassified.png`, `confusion_matrix.png`.
+The first version of this script had no pooling at all and flattened straight
+into a Dense layer. That one matrix held 3.2 million parameters, 97% of the
+model. The current network gets by with 1/30th of the weights.
 
-The console also prints a full `classification_report` (precision, recall, F1
-per class).
+## Results
+
+One number means little on an imbalanced dataset. Always answering "no plane"
+already scores 75%.
+
+On the 6,400 held-out test chips the network reaches 96.7% accuracy, with a
+recall of 0.97 and a precision of 0.91 on the plane class (AUC 0.994). Read
+those two numbers together. The model finds nearly every plane and pays for it
+with a false alarm on roughly one positive call in eleven. That is the trade
+the balanced class weights ask for, and the right side for a detector to err
+on. Drop the `class_weight` argument in `train.py` if you would rather have
+fewer alarms and more missed planes.
+
+Training took about half an hour on a laptop CPU. Early stopping ended the run
+at epoch 55 of 60 and kept the weights from epoch 50, where
+validation AUC peaked at 0.995.
+
+Everything a run produces lands in `outputs/`: the trained model
+(`plane_cnn.keras`), a `metrics.json` with the test metrics and per-class
+report, the training curves, a confusion matrix, and grids of sample, correct,
+and misclassified chips. The misclassified grid is worth a look. In my run
+most errors were false alarms on bright plane-shaped blobs and white crosses
+on tarmac, the confusers doing their job, and the few missed planes were
+faint, low-contrast ones.
+
+## Predicting
+
+```
+python predict.py path/to/chip.png
+python predict.py some_folder/
+```
+
+Loads `outputs/plane_cnn.keras` and prints a label and probability per file.
+
+## Data license
+
+The PlanesNet imagery comes from Planet's Open California program and is
+distributed under CC-BY-SA 4.0. The chips are not included in this repo.

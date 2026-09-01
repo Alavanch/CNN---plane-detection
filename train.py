@@ -5,8 +5,8 @@ of 20x20 pixels; 8,000 planes / 24,000 no-planes). Filenames encode the label:
 "1__..." = plane, "0__..." = no plane.
 
 Usage:
-    python CNN.py                     # expects the images in ./planesnet
-    python CNN.py --data-dir path/to/planesnet --epochs 30 --no-show
+    python train.py                   # expects the images in ./planesnet
+    python train.py --data-dir path/to/planesnet --epochs 30 --no-show
 """
 
 import argparse
@@ -25,8 +25,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train a plane/no-plane CNN on PlanesNet.")
     parser.add_argument("--data-dir", default="planesnet",
                         help="Folder containing the PlanesNet .png files (default: planesnet)")
-    parser.add_argument("--epochs", type=int, default=30,
-                        help="Maximum number of epochs; early stopping usually ends sooner (default: 30)")
+    parser.add_argument("--epochs", type=int, default=60,
+                        help="Maximum number of epochs; early stopping usually ends sooner (default: 60)")
     parser.add_argument("--batch-size", type=int, default=32, help="Training batch size (default: 32)")
     parser.add_argument("--out-dir", default="outputs",
                         help="Folder for the saved model and figures (default: outputs)")
@@ -90,12 +90,15 @@ def load_dataset(data_dir):
 def build_model():
     """Small CNN: ~100k parameters instead of the ~3.2M a Flatten head would give."""
     from tensorflow.keras.layers import (Conv2D, Dense, Dropout, GlobalAveragePooling2D,
-                                         Input, MaxPooling2D)
-    from tensorflow.keras.metrics import Precision, Recall
+                                         Input, MaxPooling2D, RandomFlip)
+    from tensorflow.keras.metrics import AUC, Precision, Recall
     from tensorflow.keras.models import Sequential
 
     model = Sequential([
         Input(shape=(IMG_SIZE, IMG_SIZE, 3)),
+        # Satellite chips have no preferred orientation: free augmentation
+        # (active during training only).
+        RandomFlip("horizontal_and_vertical", seed=SEED),
         Conv2D(32, (3, 3), activation="relu"),
         Conv2D(64, (3, 3), activation="relu"),
         MaxPooling2D((2, 2)),
@@ -108,7 +111,8 @@ def build_model():
     model.compile(
         loss="binary_crossentropy",
         optimizer="adam",
-        metrics=["accuracy", Precision(name="precision"), Recall(name="recall")],
+        metrics=["accuracy", Precision(name="precision"), Recall(name="recall"),
+                 AUC(name="auc")],
     )
     return model
 
@@ -171,7 +175,10 @@ def main():
         epochs=args.epochs,
         batch_size=args.batch_size,
         class_weight=class_weight,
-        callbacks=[EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True)],
+        # val_loss is noisy under class weights + augmentation and stops far
+        # too early; val_auc climbs smoothly and is threshold-independent.
+        callbacks=[EarlyStopping(monitor="val_auc", mode="max", patience=5,
+                                 restore_best_weights=True)],
     )
 
     # Final evaluation on the held-out test set. Accuracy alone is misleading
