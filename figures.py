@@ -15,8 +15,6 @@ DARK = "#424242"
 def _style_axes(ax):
     ax.set_axisbelow(True)
     ax.grid(True, color="#e0e0e0", linewidth=0.8)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
 
 
 def save_chip_grid(images, titles, colors, path, n_cols=5):
@@ -41,7 +39,8 @@ def save_training_curves(history, path):
     """Accuracy, loss, and AUC per epoch: train in grey, validation in green.
 
     A dashed line marks the epoch with the best validation AUC (the one early
-    stopping restores) and a white box carries its value.
+    stopping restores); its value sits in a white box in the top margin,
+    outside the data zone.
     """
     import matplotlib.pyplot as plt
 
@@ -57,14 +56,13 @@ def save_training_curves(history, path):
         ax.axvline(epochs[best], color=GREY, linestyle="--", linewidth=1)
         ax.set_xlabel("Epoch")
         ax.set_ylabel(label)
-    axes[2].annotate(
-        "best val AUC %.3f\nepoch %d" % (history["val_auc"][best], epochs[best]),
-        xy=(0.95, 0.12), xycoords="axes fraction", ha="right", va="bottom",
-        fontsize=9, fontweight="bold",
-        bbox=dict(facecolor="white", edgecolor="#bdbdbd", boxstyle="round,pad=0.4"),
-    )
     fig.legend(["training", "validation"], loc="upper center", ncol=2,
                frameon=False)
+    fig.text(0.99, 0.96, "best val AUC %.3f, epoch %d"
+             % (history["val_auc"][best], epochs[best]),
+             ha="right", va="center", fontsize=9, fontweight="bold",
+             bbox=dict(facecolor="white", edgecolor="#bdbdbd",
+                       boxstyle="round,pad=0.35"))
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     fig.savefig(path, dpi=150)
     print("Saved", path)
@@ -72,13 +70,13 @@ def save_training_curves(history, path):
 
 
 def save_confusion_matrix(cm, class_names, path):
-    """2x2 confusion matrix, green shading by share of the true class."""
+    """2x2 confusion matrix, blue shading by share of the true class."""
     import matplotlib.pyplot as plt
 
     cm = np.asarray(cm)
     row_share = cm / cm.sum(axis=1, keepdims=True)
     fig, ax = plt.subplots(figsize=(4.4, 4.0))
-    ax.imshow(row_share, cmap="Greens", vmin=0.0, vmax=1.0)
+    ax.imshow(row_share, cmap="Blues", vmin=0.0, vmax=1.0)
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
             color = "white" if row_share[i, j] > 0.6 else DARK
