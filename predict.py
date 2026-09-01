@@ -6,6 +6,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import sys
 
@@ -31,10 +32,23 @@ def main():
     parser.add_argument("inputs", nargs="+", help="PNG files or folders of PNG files")
     parser.add_argument("--model", default=os.path.join("outputs", "plane_cnn.keras"),
                         help="Path to the trained model (default: outputs/plane_cnn.keras)")
+    parser.add_argument("--threshold", type=float, default=None,
+                        help="Decision threshold; defaults to the tuned value stored in "
+                             "metrics.json next to the model, or 0.5")
     args = parser.parse_args()
 
     if not os.path.isfile(args.model):
         sys.exit("Model '%s' not found. Train one first with: python train.py" % args.model)
+
+    threshold = args.threshold
+    if threshold is None:
+        metrics_path = os.path.join(os.path.dirname(args.model), "metrics.json")
+        try:
+            with open(metrics_path) as f:
+                threshold = float(json.load(f)["tuned_threshold"])
+        except (OSError, KeyError, ValueError):
+            threshold = 0.5
+    print("Decision threshold: %.3f" % threshold)
 
     paths = collect_paths(args.inputs)
     if not paths:
@@ -52,7 +66,7 @@ def main():
     probs = model.predict(batch, verbose=0).ravel()
 
     for path, prob in zip(paths, probs):
-        label = "plane" if prob >= 0.5 else "no plane"
+        label = "plane" if prob >= threshold else "no plane"
         print("%-60s %s (p=%.3f)" % (path, label, prob))
 
 
